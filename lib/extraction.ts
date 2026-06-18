@@ -1,4 +1,4 @@
-import { openai, OPENAI_MODEL } from "./openai";
+import { getOpenAI, OPENAI_MODEL } from "./openai";
 
 export interface ExtractedLead {
   name: string | null;
@@ -52,7 +52,7 @@ export async function extractLeadData(
     .join("\n");
 
   try {
-    const completion = await openai.chat.completions.create({
+    const completion = await getOpenAI().chat.completions.create({
       model: OPENAI_MODEL,
       temperature: 0,
       response_format: { type: "json_object" },

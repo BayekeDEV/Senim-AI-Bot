@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { openai, OPENAI_MODEL } from "@/lib/openai";
+import { getOpenAI, OPENAI_MODEL } from "@/lib/openai";
 import { buildSystemPrompt } from "@/lib/systemPrompt";
 import { loadCompanyInfo } from "@/lib/companyInfo";
 import { buildQualificationContext } from "@/lib/qualification";
@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
     );
 
     // 2. Generate the assistant reply with full stage awareness.
-    const completion = await openai.chat.completions.create({
+    const completion = await getOpenAI().chat.completions.create({
       model: OPENAI_MODEL,
       temperature: 0.7,
       messages: [
