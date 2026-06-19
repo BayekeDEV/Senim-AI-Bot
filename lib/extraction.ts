@@ -1,4 +1,5 @@
 import { getOpenAI, OPENAI_MODEL } from "./openai";
+import { hasValidPhone, normalizePhone } from "./phone";
 
 export interface ExtractedLead {
   name: string | null;
@@ -15,6 +16,9 @@ export interface ExtractedLead {
   requestedService: string | null;
   consultationFormat: string | null;
   preferredConsultationTime: string | null;
+  /** Client explicitly agreed to consultation (may still lack phone). */
+  consultationAgreed: boolean | null;
+  /** True only when consultationAgreed AND valid phone are both present. */
   consultationBooked: boolean | null;
 }
 
@@ -26,19 +30,22 @@ const EXTRACTION_INSTRUCTIONS = `
 Поля:
 - "name": имя клиента (строка) или null.
 - "city": город клиента (строка) или null.
-- "phone": номер телефона (строка, как написал клиент) или null.
+- "phone": номер телефона клиента (строка) или null. Распознавай форматы:
+  87071234567, +77071234567, 8 707 123 45 67, +7 707 123 45 67 и похожие.
+  Извлекай номер только если клиент явно его написал.
 - "age": возраст числом или null.
 - "hasIpOrToo": "ИП", "ТОО" или "нет" если клиент явно сказал; иначе null.
-- "creditHistory": краткое описание кредитной истории словами клиента (например "хорошая", "есть просрочки", "был кредит") или null.
-- "financingPurpose": цель финансирования (например "развитие бизнеса", "открытие кафе", "покупка оборудования", "личные цели") или null.
-- "financingAmount": примерная сумма финансирования как написал клиент (например "10 млн", "5 миллионов тенге") или null.
-- "businessType": вид бизнеса или деятельности (например "кафе", "магазин", "не применимо — личные цели") или null.
-- "commercialProperty": информация о коммерческой недвижимости клиента или null.
-- "collateral": информация о залоговом имуществе (например "квартира", "авто", "нет залога") или null.
+- "creditHistory": краткое описание кредитной истории словами клиента (например "хорошая", "не знаю", "есть просрочки") или null.
+- "financingPurpose": цель финансирования или null.
+- "financingAmount": примерная сумма финансирования или null.
+- "businessType": вид бизнеса / деятельности или null.
+- "commercialProperty": информация о коммерческой недвижимости или null.
+- "collateral": информация о залоговом имуществе или null.
 - "requestedService": какая услуга интересует клиента или null.
-- "consultationFormat": "office" если клиент из Астаны; "video" если из другого города; null если город неизвестен.
-- "preferredConsultationTime": удобный день и время для консультации, если клиент указал (например "пятница 15:00", "завтра утром") или null.
-- "consultationBooked": true ТОЛЬКО если клиент ЯВНО согласился на консультацию — "да", "согласен", "запишите", "давайте", "приду", "келісемін" и т.п. Если консультацию только предложили, но клиент не ответил согласием — false. Если клиент ещё думает — false.
+- "consultationFormat": "office" если клиент из Астаны; "video" если из другого города; иначе null.
+- "preferredConsultationTime": удобный день и время, если клиент указал, или null.
+- "consultationAgreed": true ТОЛЬКО если клиент ЯВНО согласился на консультацию — "да", "согласен", "запишите", "давайте", "приду", "келісемін" и т.п. Если только предложили, но клиент не согласился — false.
+- "consultationBooked": всегда ставь false — это поле вычисляется автоматически на сервере.
 
 Извлекай только то, что реально упомянуто в диалоге. Не выдумывай.
 Отвечай только JSON, без пояснений.
@@ -67,10 +74,15 @@ export async function extractLeadData(
 
     const parsed = JSON.parse(raw) as Partial<ExtractedLead>;
 
+    const phone = normalizePhone(parsed.phone ?? null);
+    const consultationAgreed = parsed.consultationAgreed === true;
+    const consultationBooked =
+      consultationAgreed && hasValidPhone(phone);
+
     return {
       name: parsed.name ?? null,
       city: parsed.city ?? null,
-      phone: parsed.phone ?? null,
+      phone,
       age: typeof parsed.age === "number" ? parsed.age : null,
       hasIpOrToo: parsed.hasIpOrToo ?? null,
       creditHistory: parsed.creditHistory ?? null,
@@ -82,10 +94,8 @@ export async function extractLeadData(
       requestedService: parsed.requestedService ?? null,
       consultationFormat: parsed.consultationFormat ?? null,
       preferredConsultationTime: parsed.preferredConsultationTime ?? null,
-      consultationBooked:
-        typeof parsed.consultationBooked === "boolean"
-          ? parsed.consultationBooked
-          : false,
+      consultationAgreed,
+      consultationBooked,
     };
   } catch (err) {
     console.error("Lead extraction failed:", err);

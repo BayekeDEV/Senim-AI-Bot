@@ -57,8 +57,11 @@ export async function POST(req: NextRequest) {
     // 3. Re-extract from the full conversation (includes the new reply).
     const extracted = await extractLeadData(fullConversation);
 
-    // 4. Save to MongoDB ONLY when the client explicitly agreed to consultation.
-    if (extracted?.consultationBooked === true) {
+    // 4. Save ONLY when client agreed AND provided a valid phone number.
+    if (
+      extracted?.consultationBooked === true &&
+      extracted.phone
+    ) {
       await connectToDatabase();
       const lastUserMessage =
         [...messages].reverse().find((m) => m.role === "user")?.content ?? null;

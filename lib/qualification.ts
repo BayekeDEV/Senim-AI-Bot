@@ -1,4 +1,5 @@
 import { ExtractedLead } from "./extraction";
+import { hasValidPhone } from "./phone";
 
 /** Fields that must be collected before the assistant may invite to consultation. */
 export const REQUIRED_QUALIFICATION_FIELDS: {
@@ -54,6 +55,20 @@ export function isQualified(extracted: Partial<ExtractedLead> | null): boolean {
   return getMissingFields(extracted).length === 0;
 }
 
+export function hasConsultationAgreed(
+  extracted: Partial<ExtractedLead> | null
+): boolean {
+  return extracted?.consultationAgreed === true;
+}
+
+export function isBookingComplete(
+  extracted: Partial<ExtractedLead> | null
+): boolean {
+  return (
+    hasConsultationAgreed(extracted) && hasValidPhone(extracted?.phone ?? null)
+  );
+}
+
 /**
  * Builds a dynamic context block injected into the system prompt so the
  * assistant knows exactly which conversation stage it is in.
@@ -64,11 +79,9 @@ export function buildQualificationContext(
   const missing = getMissingFields(extracted);
   const collected = getCollectedFields(extracted);
   const qualified = isQualified(extracted);
-  const agreed = extracted?.consultationBooked === true;
-  const hasPreferredTime = isFieldFilled(
-    extracted ?? {},
-    "preferredConsultationTime"
-  );
+  const agreed = hasConsultationAgreed(extracted);
+  const phone = hasValidPhone(extracted?.phone ?? null);
+  const booked = isBookingComplete(extracted);
 
   if (!qualified) {
     return `
@@ -81,8 +94,13 @@ ${collected.length > 0 ? `Уже собрано:\n${collected.map((c) => `- ${c}
 ${missing.map((m) => `- ${m}`).join("\n")}
 
 СТРОГОЕ ПРАВИЛО: НЕ приглашай клиента на консультацию.
-НЕ предлагай запись. НЕ спрашивай удобное время.
+НЕ предлагай запись. НЕ спрашивай телефон для записи.
 Продолжай задавать 1–2 вопроса из списка недостающих полей.
+
+КРЕДИТНАЯ ИСТОРИЯ: если клиент не знает свою историю — кратко объясни:
+"Кредитную историю можно посмотреть через 1CB или eGov. Если история положительная и без просрочек — это хороший плюс для рассмотрения заявки."
+Если клиент говорит, что история хорошая — ответь:
+"Отлично, хорошая кредитная история — это важный плюс. Дальше на консультации специалист уже подробнее разберёт вашу ситуацию."
 `.trim();
   }
 
@@ -100,28 +118,45 @@ ${collected.map((c) => `- ${c}`).join("\n")}
    - если город — Астана → консультация в офисе;
    - если другой город → видеоконсультация.
 3. НЕ записывай клиента, пока он явно не согласится.
-4. НЕ спрашивай день и время, пока клиент не согласился на консультацию.
+4. НЕ спрашивай телефон, пока клиент не согласился на консультацию.
+5. НЕ говори "записал(а) вас", пока нет телефона.
 `.trim();
   }
 
-  if (!hasPreferredTime) {
+  if (!phone) {
     return `
-СТАДИЯ ДИАЛОГА: ШАГ 5 — клиент согласился на консультацию.
-КВАЛИФИКАЦИЯ: ЗАВЕРШЕНА ✅ | СОГЛАСИЕ: ПОЛУЧЕНО ✅
+СТАДИЯ ДИАЛОГА: ШАГ 5 — клиент согласился на консультацию, нужен телефон.
+КВАЛИФИКАЦИЯ: ЗАВЕРШЕНА ✅ | СОГЛАСИЕ: ПОЛУЧЕНО ✅ | ТЕЛЕФОН: НЕТ ❌
 
 Собранная информация:
 ${collected.map((c) => `- ${c}`).join("\n")}
 
-ДЕЙСТВИЕ: Спроси удобный день и время для консультации.
-Подтверди формат (${extracted?.consultationFormat === "office" ? "офис в Астане" : "видеозвонок"}).
+СТРОГОЕ ПРАВИЛО: НЕ финализируй запись без телефона.
+НЕ пиши "записал(а) вас на консультацию" — телефона ещё нет.
+
+ДЕЙСТВИЕ: Попроси номер телефона. Можно так:
+"Отлично 🙂 Оставьте, пожалуйста, ваш номер телефона, чтобы менеджер мог с вами связаться."
+
+Можно также уточнить удобный день и время — но только ПОСЛЕ получения телефона.
+`.trim();
+  }
+
+  if (!booked) {
+    return `
+СТАДИЯ ДИАЛОГА: ШАГ 6 — телефон получен, подтверди запись.
+КВАЛИФИКАЦИЯ: ЗАВЕРШЕНА ✅ | СОГЛАСИЕ: ПОЛУЧЕНО ✅ | ТЕЛЕФОН: ${extracted?.phone} ✅
+
+ДЕЙСТВИЕ: Подтверди запись. Можно так:
+"Спасибо, записал(а) вас на консультацию. Менеджер свяжется с вами и уточнит детали ✅"
+
+Не обещай одобрение кредита. Не гарантируй финансирование.
 `.trim();
   }
 
   return `
-СТАДИЯ ДИАЛОГА: ШАГ 6 — консультация согласована.
-КВАЛИФИКАЦИЯ: ЗАВЕРШЕНА ✅ | СОГЛАСИЕ: ПОЛУЧЕНО ✅ | ВРЕМЯ: УКАЗАНО ✅
+СТАДИЯ ДИАЛОГА: консультация записана.
+КВАЛИФИКАЦИЯ: ЗАВЕРШЕНА ✅ | СОГЛАСИЕ: ПОЛУЧЕНО ✅ | ТЕЛЕФОН: ${extracted?.phone} ✅
 
-Удобное время клиента: ${extracted?.preferredConsultationTime}
-Подтверди запись и поблагодари клиента.
+Запись уже подтверждена. Отвечай на вопросы клиента кратко и по делу.
 `.trim();
 }

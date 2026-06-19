@@ -8,7 +8,10 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   try {
     await connectToDatabase();
-    const leads = await Lead.find({ consultationBooked: true })
+    const leads = await Lead.find({
+      consultationBooked: true,
+      phone: { $exists: true, $nin: [null, ""] },
+    })
       .sort({ updatedAt: -1 })
       .lean();
     return NextResponse.json({ leads });
